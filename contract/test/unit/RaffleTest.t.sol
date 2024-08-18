@@ -17,6 +17,7 @@ contract RaffleTest is Test, CodeConstants {
     Raffle public raffle;
     HelperConfig public helperConfig;
 
+    uint256 minUsersToStart;
     uint256 entranceFee;
     uint256 interval;
     address vrfCoordinatorV2;
@@ -26,6 +27,8 @@ contract RaffleTest is Test, CodeConstants {
     LinkToken link;
 
     address public PLAYER = makeAddr("player");
+    address public PLAYER2 = makeAddr("player2");
+
     uint256 public constant ENTRANCE = 1 ether;
     uint256 public constant START_BALANCE = 10 ether;
     uint256 public constant LINK_BALANCE = 100 ether;
@@ -35,9 +38,11 @@ contract RaffleTest is Test, CodeConstants {
         (raffle, helperConfig) = deployer.run();
 
         vm.deal(PLAYER, START_BALANCE);
+        vm.deal(PLAYER2, START_BALANCE);
 
         HelperConfig.NetworkConfig memory config = helperConfig.getConfig();
 
+        minUsersToStart = config.minUsersToStart;
         entranceFee = config.entranceFee;
         interval = config.interval;
         vrfCoordinatorV2 = config.vrfCoordinatorV2;
@@ -66,20 +71,23 @@ contract RaffleTest is Test, CodeConstants {
         assert(raffle.getRaffleState() == Raffle.RaffleState.OPEN);
     }
 
+    function testMinimumUsersToStart() public view {
+        assert(raffle.getMinimumPlayersToStart() == minUsersToStart);
+    }
+
     function testRaffleEntranceRevertNoEnoughEth() public payable {
         vm.prank(PLAYER);
         vm.expectRevert(Raffle.Raffle__NotEnoughEthToBuyATicket.selector);
         raffle.enterRaffle();
     }
 
-    function testRafflePlayerEnterRaffleIsInList() public {
-        uint256 entrance = 1 ether;
+    function testRafflePlayerEnterRaffleIsInList() public raffleEntered {
+        uint256 expectedBalance = START_BALANCE - ENTRANCE;
 
-        vm.prank(PLAYER);
-        raffle.enterRaffle{value: entrance}();
+        vm.assertEq(address(PLAYER).balance, expectedBalance);
+        vm.assertEq(address(PLAYER2).balance, expectedBalance);
 
-        vm.assertEq(address(PLAYER).balance, 9 ether);
-        vm.assertEq(address(raffle).balance, 1 ether);
+        vm.assertEq(address(raffle).balance, ENTRANCE * 2);
 
         vm.assertEq(raffle.getPlayer(0), address(PLAYER));
     }
@@ -94,12 +102,10 @@ contract RaffleTest is Test, CodeConstants {
         raffle.enterRaffle{value: entrance}();
     }
 
-    function testDontAllowPlayersToEnterWhileRaffleIsCalculating() public {
-        vm.prank(PLAYER);
-        raffle.enterRaffle{value: ENTRANCE}();
-
-        vm.warp(block.timestamp + interval + 1);
-        vm.roll(block.number + 1);
+    function testDontAllowPlayersToEnterWhileRaffleIsCalculating()
+        public
+        raffleEntered
+    {
         raffle.performUpkeep("");
 
         vm.expectRevert(Raffle.Raffle__LotteryNotOpen.selector);
@@ -122,6 +128,9 @@ contract RaffleTest is Test, CodeConstants {
 
     function testCheckUpkeepReturnsFalseIfRaffleIsntOpen() public {
         vm.prank(PLAYER);
+        raffle.enterRaffle{value: ENTRANCE}();
+
+        vm.prank(PLAYER2);
         raffle.enterRaffle{value: ENTRANCE}();
 
         vm.warp(block.timestamp + interval + 1);
@@ -148,6 +157,9 @@ contract RaffleTest is Test, CodeConstants {
         vm.prank(PLAYER);
         raffle.enterRaffle{value: ENTRANCE}();
 
+        vm.prank(PLAYER2);
+        raffle.enterRaffle{value: ENTRANCE}();
+
         vm.warp(block.timestamp + interval + 1);
         vm.roll(block.number + 1);
 
@@ -162,13 +174,10 @@ contract RaffleTest is Test, CodeConstants {
                              PERFORMUPKEEP
     //////////////////////////////////////////////////////////////*/
 
-    function testPerformUpkeepCanOnlyRunIfCheckUpkeepIsTrue() public {
-        vm.prank(PLAYER);
-        raffle.enterRaffle{value: ENTRANCE}();
-
-        vm.warp(block.timestamp + interval + 1);
-        vm.roll(block.number + 1);
-
+    function testPerformUpkeepCanOnlyRunIfCheckUpkeepIsTrue()
+        public
+        raffleEntered
+    {
         raffle.performUpkeep("");
     }
 
@@ -191,13 +200,10 @@ contract RaffleTest is Test, CodeConstants {
         raffle.performUpkeep("");
     }
 
-    function testPerformUpkeepUpdatesRaffleStateAndEmitsRequestId() public {
-        vm.prank(PLAYER);
-        raffle.enterRaffle{value: ENTRANCE}();
-
-        vm.warp(block.timestamp + interval + 1);
-        vm.roll(block.number + 1);
-
+    function testPerformUpkeepUpdatesRaffleStateAndEmitsRequestId()
+        public
+        raffleEntered
+    {
         vm.recordLogs();
         raffle.performUpkeep("");
         Vm.Log[] memory entries = vm.getRecordedLogs();
@@ -216,6 +222,10 @@ contract RaffleTest is Test, CodeConstants {
     modifier raffleEntered() {
         vm.prank(PLAYER);
         raffle.enterRaffle{value: ENTRANCE}();
+
+        vm.prank(PLAYER2);
+        raffle.enterRaffle{value: ENTRANCE}();
+
         vm.warp(block.timestamp + interval + 1);
         vm.roll(block.number + 1);
         _;
@@ -244,17 +254,19 @@ contract RaffleTest is Test, CodeConstants {
         raffleEntered
     {
         //Arange
-        uint256 additionalEntrants = 3; // 4 total
-        uint256 index = 1;
-        address expectedWinner = address(1);
+        uint256 additionalEntrants = 3; // 5 total
+        uint256 index = minUsersToStart;
+        address expectedWinner = address(PLAYER2);
 
         for (uint256 i = index; i < index + additionalEntrants; i++) {
             address newPlayer = address(uint160(i));
             hoax(newPlayer, 1 ether);
             raffle.enterRaffle{value: ENTRANCE}();
         }
+
         uint256 startingTimeStamp = raffle.getLastTimeStamp();
         uint256 winnerStartingBalance = expectedWinner.balance;
+        uint256 totalPlayers = raffle.getNumberOfPlayers();
         // Act
         vm.recordLogs();
         raffle.performUpkeep("");
@@ -273,8 +285,9 @@ contract RaffleTest is Test, CodeConstants {
         uint256 winnerBalance = recentWinner.balance;
 
         uint256 endingTimeStamp = raffle.getLastTimeStamp();
-        uint256 prize = ENTRANCE * (additionalEntrants + 1);
+        uint256 prize = ENTRANCE * (additionalEntrants + minUsersToStart);
 
+        assert(totalPlayers == additionalEntrants + minUsersToStart);
         assert(recentWinner == expectedWinner);
         assert(uint256(rState) == 0);
         assert(winnerBalance == winnerStartingBalance + prize);
