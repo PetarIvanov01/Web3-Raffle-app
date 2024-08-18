@@ -28,7 +28,6 @@ contract Raffle is VRFConsumerBaseV2Plus {
         OPEN,
         CALCULATING
     }
-
     uint16 private constant REQUEST_CONFIRMATIONS = 3;
     uint32 private constant NUM_WORDS = 1;
     /* State variables */
@@ -37,6 +36,7 @@ contract Raffle is VRFConsumerBaseV2Plus {
     bytes32 private immutable i_gasLane;
     uint32 private immutable i_callbackGasLimit;
 
+    uint256 private immutable i_min_users_to_start;
     uint256 private immutable i_entranceFee;
     // @dev Duration of the lottery in seconds
     uint256 private immutable i_interval;
@@ -51,6 +51,7 @@ contract Raffle is VRFConsumerBaseV2Plus {
     event RequestedRaffleWinner(uint256 indexed requestId);
 
     constructor(
+        uint256 minUsersToStart,
         uint256 subscriptionId,
         bytes32 gasLane, // keyHash
         uint256 interval,
@@ -58,6 +59,7 @@ contract Raffle is VRFConsumerBaseV2Plus {
         uint32 callbackGasLimit,
         address vrfCoordinatorV2
     ) VRFConsumerBaseV2Plus(vrfCoordinatorV2) {
+        i_min_users_to_start = minUsersToStart;
         i_entranceFee = entranceFee;
         i_interval = interval;
         s_lastTimeStamp = block.timestamp;
@@ -88,7 +90,7 @@ contract Raffle is VRFConsumerBaseV2Plus {
             i_interval);
         bool isOpen = s_raffleState == RaffleState.OPEN;
         bool hasBalance = address(this).balance > 0;
-        bool hasPlayers = s_listOfEnteredPlayers.length > 0;
+        bool hasPlayers = s_listOfEnteredPlayers.length >= i_min_users_to_start;
 
         if (timeHasPassed && isOpen && hasBalance && hasPlayers) {
             upkeepNeeded = true;
@@ -168,11 +170,15 @@ contract Raffle is VRFConsumerBaseV2Plus {
         return s_recentWinner;
     }
 
-    function getInterval() public view returns (uint256) {
+    function getInterval() external view returns (uint256) {
         return i_interval;
     }
 
-    function getNumberOfPlayers() public view returns (uint256) {
+    function getNumberOfPlayers() external view returns (uint256) {
         return s_listOfEnteredPlayers.length;
+    }
+
+    function getMinimumPlayersToStart() external view returns (uint256) {
+        return i_min_users_to_start;
     }
 }
