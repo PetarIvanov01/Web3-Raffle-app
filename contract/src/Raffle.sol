@@ -28,6 +28,7 @@ contract Raffle is VRFConsumerBaseV2Plus {
         OPEN,
         CALCULATING
     }
+
     uint16 private constant REQUEST_CONFIRMATIONS = 3;
     uint32 private constant NUM_WORDS = 1;
     /* State variables */
