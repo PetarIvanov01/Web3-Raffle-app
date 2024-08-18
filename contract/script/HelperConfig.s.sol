@@ -23,6 +23,7 @@ contract HelperConfig is CodeConstants, Script {
     error HelperConfig_InvalidChainId();
 
     struct NetworkConfig {
+        uint256 minUsersToStart;
         uint256 subscriptionId;
         bytes32 gasLane;
         uint256 interval;
@@ -66,6 +67,7 @@ contract HelperConfig is CodeConstants, Script {
     function getSepoliaEthConfig() public pure returns (NetworkConfig memory) {
         return
             NetworkConfig({
+                minUsersToStart: 3,
                 entranceFee: 0.01 ether, // 1e16
                 interval: 30, //seconds
                 vrfCoordinatorV2: 0x9DdfaCa8183c41ad55329BdeeD9F6A8d53168B1B,
@@ -95,6 +97,7 @@ contract HelperConfig is CodeConstants, Script {
         vm.stopBroadcast();
 
         localNetworkConfig = NetworkConfig({
+            minUsersToStart: 2,
             subscriptionId: subscriptionId,
             gasLane: 0x787d74caea10b2b357790d5b5247c2f63d1d91572a9846f780606e4d953677ae,
             interval: 30, //seconds
